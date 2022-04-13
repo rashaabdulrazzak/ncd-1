@@ -8,7 +8,8 @@
     "clean": "rm -rf ./build && rm -rf ./neardev",
     "build": "asb --target debug",
     "build:release": "asb",
-    "asp": "asp --verbose --nologo"
+    "asp": "asp --verbose --nologo",
+    "deploy": "near dev-deploy build/debug/singleton.wasm"
   },
   "keywords": [],
   "author": "hello@near.org",

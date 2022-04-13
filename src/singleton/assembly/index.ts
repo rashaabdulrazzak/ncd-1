@@ -1,68 +1,99 @@
-import { storage, Context } from "near-sdk-core"
+import { storage, Context, PersistentMap, PersistentVector, u128, logging, ContractPromiseBatch } from "near-sdk-core"
+import { Project } from "./model"
 
 @nearBindgen
 export class Contract {
-  private message: string = 'hello world'
-
-  // return the string 'hello world'
-  helloWorld(): string {
-    return this.message
-  }
-
-  // read the given key from account (contract) storage
-  read(key: string): string {
-    if (isKeyInStorage(key)) {
-      return `✅ Key [ ${key} ] has value [ ${storage.getString(key)!} ] and "this.message" is [ ${this.message} ]`
-    } else {
-      return `🚫 Key [ ${key} ] not found in storage. ( ${this.storageReport()} )`
-    }
-  }
-
-  /**
-  write the given value at the given key to account (contract) storage
-  ---
-  note: this is what account storage will look like AFTER the write() method is called the first time
-  ╔════════════════════════════════╤══════════════════════════════════════════════════════════════════════════════════╗
-  ║                            key │ value                                                                            ║
-  ╟────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────╢
-  ║                          STATE │ {                                                                                ║
-  ║                                │   "message": "data was saved"                                                    ║
-  ║                                │ }                                                                                ║
-  ╟────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────╢
-  ║                       some-key │ some value                                                                       ║
-  ╚════════════════════════════════╧══════════════════════════════════════════════════════════════════════════════════╝
-   */
+  projects:PersistentMap<u32, Project>  = new PersistentMap<u32,Project>('p');
+  projectIdList:PersistentVector<u32> = new PersistentVector<u32>('pl');
+ 
   @mutateState()
-  write(key: string, value: string): string {
-    storage.set(key, value)
-    this.message = 'data was saved' // this is why we need the deorator @mutateState() above the method name
-    return `✅ Data saved. ( ${this.storageReport()} )`
+  // creat project
+  createProject(address: string, name: string, funds: string, description: string):u32{
+    const funds_u128 = u128.from(funds);
+
+    const newProject = new Project(name, address, funds_u128, description);
+    this.projects.set(newProject.id,newProject);
+    this.projectIdList.push(newProject.id);
+    logging.log('New project has been created with id : '+ (newProject.id).toString());
+    return newProject.id;
+  }
+  
+  // get project by id
+  getProjectById(id:u32):Project{
+    return this.projects.getSome(id);    
   }
 
+  // get all projects
+  getProjects():Array<Project>{
+    const projectsResult= new Array<Project>();  
+    const projectLen = this.projectIdList.length;  
+    for (let i = 0; i < projectLen; i++) {
+      logging.log("Project Id : " + (this.projectIdList[i]).toString());
 
-  // private helper method used by read() and write() above
-  private storageReport(): string {
-    return `storage [ ${Context.storageUsage} bytes ]`
+      projectsResult.push(this.projects.getSome(this.projectIdList[i]))
+    }
+    return projectsResult
   }
-}
 
-/**
- * This function exists only to avoid a compiler error
- *
+  // update funds of a project
+  updateFundOfProject(id:u32, funds: string):Project{
+    const project = this.projects.getSome(id);
+    const income = u128.from(funds);
+    const income2 = u128.fromString(funds,10);
+    const income3 = u128.fromString(funds);
 
-ERROR TS2339: Property 'contains' does not exist on type 'src/singleton/assembly/index/Contract'.
+   //  1. the project still need fund
+   // 2. if the project get the needed fund
+   if (project.funds > income && project.residual !=  project.funds) {
+    project.recieved = u128.add(project.recieved, income)
+    project.residual = u128.sub(project.funds, project.recieved)
+  }
+  else {
+    project.residual = u128.from(0);
+    project.recieved = income;
+    //const newFundedProject = storage.getPrimitive<i32>("fundedProject", 0) + 1;
+    //storage.set<i32>("fundedProject", newFundedProject);
+  }
+  logging.log("Project Residual : " + (project.residual).toString());
+  logging.log("Project income : " + (income).toString());
+  logging.log("Project income2 : " + (income2).toString());
+  logging.log("Project income3 : " + (income3).toString());
 
-     return this.contains(key);
-                 ~~~~~~~~
- in ~lib/near-sdk-core/storage.ts(119,17)
+  // Update the existing project 
+  this.projects.set(id, project);
 
-/Users/sherif/Documents/code/near/_projects/edu.t3/starter--near-sdk-as/node_modules/asbuild/dist/main.js:6
-        throw err;
-        ^
+  return project
 
- * @param key string key in account storage
- * @returns boolean indicating whether key exists
- */
-function isKeyInStorage(key: string): bool {
-  return storage.hasKey(key)
+  }
+
+  // Transfer the money to the selected project 
+  // account id is the address of the project 
+   sendDonation(accountId: string): string {
+    let currentSender = Context.sender;
+    let amount = Context.attachedDeposit;
+
+    logging.log("Sender : " + currentSender);
+    logging.log("Attached Amount : " + (amount).toString());
+
+    // Transfer the attached money to the selectd project 
+    const to_beneficiary = ContractPromiseBatch.create(accountId);
+    const amount_to_receive = amount;
+
+    to_beneficiary.transfer(amount_to_receive);
+
+    return "Donation done successfully";
+  }
+
+  // Donate for project 
+  // it require update the funds of the exsisting project 
+  // also transfer the money from the sender to the account of project o testnet 
+  donateForProject(accountId: string, id: u32, funds: string): string {
+    
+    this.updateFundOfProject(id, funds);
+    this.sendDonation(accountId);
+
+    return "Donation done successfully";
+
+  }
+
 }
